@@ -21,6 +21,7 @@ if python3 -c 'import socket; s=socket.socket(); s.settimeout(1); raise SystemEx
   echo 'Port 8188 is in use. Do not replace a running service; stop setup and inspect it.' >&2; exit 1
 fi
 mkdir -p "$ROOT" "$PREFIX" "$SPARK_MODELS"
+bash "$REPO/scripts/install-recorder"
 command -v uv >/dev/null || { echo 'Install uv before running setup: https://docs.astral.sh/uv/getting-started/installation/' >&2; exit 1; }
 [ -x "$PREFIX/venv/bin/python" ] || uv venv "$PREFIX/venv" --python 3.12 --python-preference only-managed --seed
 PY="$PREFIX/venv/bin/python"

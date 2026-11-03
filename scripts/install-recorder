@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+read -r REVISION < "$HERE/render-media-revision"
+[[ "$REVISION" =~ ^[0-9a-f]{40}$ ]] || { echo 'Invalid render-media revision.' >&2; exit 1; }
+ROOT="${DGX_MEDIA_HOME:-$HOME/.local/share/dgx-spark-media}"
+DEST="$ROOT/render-media-$REVISION"
+if [ ! -e "$DEST" ] && [ ! -L "$DEST" ]; then
+  mkdir -p "$ROOT"
+  git clone --no-checkout https://github.com/jlave-dev/render-media.git "$DEST"
+  git -C "$DEST" checkout --detach "$REVISION"
+fi
+[ -d "$DEST/.git" ] && [ ! -L "$DEST" ] || { echo "Not a render-media checkout: $DEST" >&2; exit 1; }
+[ "$(git -C "$DEST" rev-parse HEAD)" = "$REVISION" ] || { echo "Wrong render-media revision: $DEST" >&2; exit 1; }
+[ -z "$(git -C "$DEST" status --porcelain --untracked-files=all)" ] || { echo "render-media checkout has local changes: $DEST" >&2; exit 1; }

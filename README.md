@@ -1,6 +1,6 @@
 # DGX Spark Media Recipes
 
-Make images and videos on one NVIDIA DGX Spark. This recipe uses **MOSS Image SFT** for images. It uses **Pika H3 Flex** on MiniMax H3 for videos. You can make a video from text or from an image. The built-in recorder saves each run's graph, inputs, model hashes, and outputs.
+Make images and videos on one NVIDIA DGX Spark. This recipe uses **MOSS Image SFT** for images. It uses **Pika H3 Flex** on MiniMax H3 for videos. You can make a video from text or from an image. The recorder saves each run's graph, inputs, model hashes, and outputs.
 
 **Early release:** the model workflows were tested on a DGX Spark. The new setup script has not been tested from start to finish on a clean machine. Please report any failures.
 
@@ -28,7 +28,7 @@ cd dgx-spark-media-recipes
 ./scripts/setup.sh
 ```
 
-Setup installs its backend under `~/.local/share/dgx-spark-media/` and links the skill into `~/.codex/skills/`. Set `DGX_MEDIA_HOME` before setup to use another backend directory. It installs the skill only if the target does not already belong to another installation. The guarded server runs on `127.0.0.1:8188`. If that port is already occupied, setup stops instead of replacing it. Runs are recorded in `~/media/runs/`.
+Setup installs its backend and a pinned [render-media](https://github.com/jlave-dev/render-media) checkout under `~/.local/share/dgx-spark-media/` and links the skill into `~/.codex/skills/`. Set `DGX_MEDIA_HOME` before setup to use another backend directory. It installs the skill only if the target does not already belong to another installation. The guarded server runs on `127.0.0.1:8188`. If that port is already occupied, setup stops instead of replacing it. Runs are recorded in `~/media/runs/`.
 
 The setup script starts the server with a memory guard. It then runs `scripts/smoke.py`. This makes one MOSS image and one Pika H3 video. It checks the saved results and prints their paths. The first run may take several minutes. If a step fails, read the error. Do not assume that setup worked. Run `scripts/media doctor` to check the server. This command does not start or stop it. To start the server later, check for other work and check port 8188 first. Then run:
 
@@ -43,7 +43,7 @@ bash vendor/imagination-studio/spark/comfy.sh start
 
 After setup, ask your agent to use the `dgx-spark-generate-video` skill. It supports MOSS text-to-image and Pika H3 text-to-video or first-frame image-to-video. The skill uses the recorder and reports the run ID and output path. The agent must have access to this checkout and the skill; restart it if newly installed skills are not visible.
 
-For direct use, `scripts/media` invokes the bundled recorder locally:
+For direct use, `scripts/media` invokes the pinned recorder locally:
 
 ```sh
 ./scripts/media doctor
@@ -56,4 +56,4 @@ Use `--set NODE.FIELD=JSON_VALUE` for prompts, seeds, and dimensions; see the sk
 
 ## How this fits together
 
-The recipes use [ComfyUI](https://github.com/Comfy-Org/ComfyUI) and [TensorFold](https://github.com/drowzeys/TensorFold). They include support scripts from [Imagination Studio](https://github.com/drowzeys/Imagination-Studio-by-keys-Wasserman), created by Keys (github.com/drowzeys) and Sam Wasserman / Wasserman Productions (wassermanproductions.com). Their license and notice are in `vendor/imagination-studio/`. The patch lets Pika H3 run with dense attention. Keep TensorFold sparsity at zero. This repo has a copy of [render-media](https://github.com/jlave-dev/render-media) for use on one machine. It saves model hashes, not the model files. The same seed may not give the same pixels. The recorder may miss files used by custom nodes. Saved runs are not backups.
+The recipes use [ComfyUI](https://github.com/Comfy-Org/ComfyUI) and [TensorFold](https://github.com/drowzeys/TensorFold). They include support scripts from [Imagination Studio](https://github.com/drowzeys/Imagination-Studio-by-keys-Wasserman), created by Keys (github.com/drowzeys) and Sam Wasserman / Wasserman Productions (wassermanproductions.com). Their license and notice are in `vendor/imagination-studio/`. The patch lets Pika H3 run with dense attention. Keep TensorFold sparsity at zero. The recorder saves model hashes, not the model files. The same seed may not give the same pixels. The recorder may miss files used by custom nodes. Saved runs are not backups.

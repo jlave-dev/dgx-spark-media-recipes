@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-exec python3 "$ROOT/render-media/render.py" --local "$@"
+read -r REVISION < "$ROOT/scripts/render-media-revision"
+[[ "$REVISION" =~ ^[0-9a-f]{40}$ ]] || { echo 'Invalid render-media revision.' >&2; exit 1; }
+RECORDER="${DGX_MEDIA_HOME:-$HOME/.local/share/dgx-spark-media}/render-media-$REVISION/render.py"
+[ -f "$RECORDER" ] || { echo 'render-media is not installed; run scripts/install-recorder.' >&2; exit 1; }
+exec python3 "$RECORDER" --local "$@"
