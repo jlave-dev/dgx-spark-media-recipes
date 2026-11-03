@@ -1,0 +1,21 @@
+name: Check docs
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  vale:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: vale-cli/vale-action@v3
+        with:
+          version: 3.26.0
+          files: all
+          sync: false
+          filter_mode: nofilter
+          fail_level: error
