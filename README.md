@@ -56,7 +56,3 @@ Use `--set NODE.FIELD=JSON_VALUE` for prompts, seeds, and dimensions; see the sk
 ## How this fits together
 
 The recipes use [ComfyUI](https://github.com/Comfy-Org/ComfyUI), [Imagination Studio](https://github.com/drowzeys/Imagination-Studio-by-keys-Wasserman), and [TensorFold](https://github.com/drowzeys/TensorFold). The patch lets Pika H3 run with dense attention. Keep TensorFold sparsity at zero. This repo has a copy of [render-media](https://github.com/jlave-dev/render-media) for use on one machine. It saves model hashes, not the model files. The same seed may not give the same pixels. The recorder may miss files used by custom nodes. Saved runs are not backups.
-
-## Check the docs
-
-Run `vale .` to check all Markdown files. Vale 3.26.0 checks each file's Flesch–Kincaid grade. The score must be 8 or less. The score is a guide, not a proof that the text is easy to read.

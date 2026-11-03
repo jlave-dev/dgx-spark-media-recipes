@@ -1,5 +1,0 @@
-extends: metric
-message: 'Keep the Flesch–Kincaid grade at 8 or below (current: %s).'
-level: error
-formula: '(0.39 * (words / sentences)) + (11.8 * (syllables / words)) - 15.59'
-condition: '> 8.0'
