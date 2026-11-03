@@ -4,12 +4,13 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ROOT="${DGX_MEDIA_HOME:-$HOME/.local/share/dgx-spark-media}"
 PREFIX="$ROOT/studio"
 SPARK_MODELS="$ROOT/models"
-STUDIO="$ROOT/studio-source"
+SUPPORT="$REPO/vendor/imagination-studio/spark"
 TF_SOURCE="$ROOT/tensorfold-source"
-STUDIO_COMMIT=12d2e8005f8a78f3dea8e89d14864316cc86c04f
+COMFY_COMMIT=b9b290e43f1eb379946dfeb013faf9bbefa1a618
 TF_COMMIT=1f7ecc75ded5df6da151d4d5eeee87b35161e3c2
+case "$PREFIX" in *[[:space:]]*) echo 'DGX_MEDIA_HOME must not contain whitespace.' >&2; exit 1;; esac
 export PREFIX SPARK_MODELS SPARK_COMFY_PORT=8188 PATH="$HOME/.local/bin:/usr/local/cuda/bin:$PATH"
-export SPARK_COMFY_ARGS='--use-ck-attention --cache-ram 12 16'
+export SPARK_COMFY_ARGS="--use-ck-attention --cache-ram 12 16 --extra-model-paths-config $PREFIX/model-paths.yaml"
 for cmd in git python3 curl ffmpeg ffprobe nvidia-smi; do
   command -v "$cmd" >/dev/null || { echo "Missing required command: $cmd" >&2; exit 1; }
 done
@@ -19,17 +20,43 @@ nvidia-smi --query-gpu=name --format=csv,noheader | grep -qi 'GB10\|Spark' || { 
 if python3 -c 'import socket; s=socket.socket(); s.settimeout(1); raise SystemExit(0 if s.connect_ex(("127.0.0.1",8188))==0 else 1)'; then
   echo 'Port 8188 is in use. Do not replace a running service; stop setup and inspect it.' >&2; exit 1
 fi
-mkdir -p "$ROOT"
-if [ ! -d "$STUDIO/.git" ]; then git clone https://github.com/drowzeys/Imagination-Studio-by-keys-Wasserman.git "$STUDIO"; fi
-[ -z "$(git -C "$STUDIO" status --porcelain)" ] || { echo "Studio source has local changes: $STUDIO" >&2; exit 1; }
-git -C "$STUDIO" fetch origin "$STUDIO_COMMIT"
-git -C "$STUDIO" checkout --detach "$STUDIO_COMMIT"
-# The upstream setup uses an isolated PREFIX and models directory, and supplies ComfyUI,
-# CUDA PyTorch, and the memory guard. It also downloads additional upstream models.
-bash "$STUDIO/oneshot-setup-spark.sh" --yes --no-render --no-workflows --no-loras --no-graphics --no-finish --moss --h3-base
+mkdir -p "$ROOT" "$PREFIX" "$SPARK_MODELS"
+command -v uv >/dev/null || { echo 'Install uv before running setup: https://docs.astral.sh/uv/getting-started/installation/' >&2; exit 1; }
+[ -x "$PREFIX/venv/bin/python" ] || uv venv "$PREFIX/venv" --python 3.12 --python-preference only-managed --seed
+PY="$PREFIX/venv/bin/python"
+UV_TORCH_BACKEND=cu130 uv pip install --python "$PY" torch==2.14.1 torchvision==0.29.1 torchaudio
+"$PY" -c 'import torch; assert torch.cuda.is_available(), "PyTorch cannot access CUDA"'
+if [ ! -d "$PREFIX/ComfyUI/.git" ]; then git clone https://github.com/Comfy-Org/ComfyUI.git "$PREFIX/ComfyUI"; fi
+[ -z "$(git -C "$PREFIX/ComfyUI" status --porcelain)" ] || { echo "ComfyUI source has local changes: $PREFIX/ComfyUI" >&2; exit 1; }
+git -C "$PREFIX/ComfyUI" fetch origin "$COMFY_COMMIT"
+git -C "$PREFIX/ComfyUI" checkout --detach "$COMFY_COMMIT"
+UV_TORCH_BACKEND=cu130 uv pip install --python "$PY" -r "$PREFIX/ComfyUI/requirements.txt" huggingface_hub==1.33.0
+python3 - "$PREFIX/model-paths.yaml" "$SPARK_MODELS" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+content = 'recipes:\n  base_path: ' + json.dumps(sys.argv[2]) + '''
+  diffusion_models: |
+    MiniMax-H3-Comfy/diffusion_models
+    MOSS-Image-Comfy/diffusion_models
+  text_encoders: |
+    FastH3-Comfy/text_encoders
+    MOSS-Image-Comfy/text_encoders
+  vae: |
+    FastH3-Comfy/vae
+    MOSS-Image-Comfy/vae
+  loras: MiniMax-H3-Comfy/loras
+'''
+if path.exists() and path.read_text() != content:
+    raise SystemExit(f'Model paths file has unexpected contents: {path}')
+path.write_text(content)
+PY
 HF="$PREFIX/venv/bin/hf"
 "$HF" download Comfy-Org/MOSS-Image diffusion_models/moss_image_sft_int8_convrot.safetensors text_encoders/qwen3.5_9b_w4a8_gptq.safetensors vae/flux2-vae_small.safetensors --local-dir "$SPARK_MODELS/MOSS-Image-Comfy"
-"$HF" download Comfy-Org/MiniMax-H3 loras/pika_h3_flex_fl2va_v1_bf16.safetensors --local-dir "$SPARK_MODELS/MiniMax-H3-Comfy"
+"$HF" download Comfy-Org/MiniMax-H3 diffusion_models/minimax_h3_fl2va_pruned_bf16.safetensors loras/pika_h3_flex_fl2va_v1_bf16.safetensors --local-dir "$SPARK_MODELS/MiniMax-H3-Comfy"
+"$HF" download FastVideo/FastVideo-FastH3-Comfy text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors vae/minimax_h3_video_vae_int8_convrot.safetensors vae/minimax_h3_audio_vae_fp32.safetensors --local-dir "$SPARK_MODELS/FastH3-Comfy"
 python3 - "$SPARK_MODELS" <<'PY'
 from datetime import date
 from pathlib import Path
@@ -56,7 +83,7 @@ if ! git -C "$TF_SOURCE" apply --reverse --check "$REPO/patches/tensorfold-h3.pa
   git -C "$TF_SOURCE" apply "$REPO/patches/tensorfold-h3.patch"
 fi
 [ "$(git -C "$TF_SOURCE" rev-parse HEAD)" = "$TF_COMMIT" ] || { echo 'TensorFold revision mismatch.' >&2; exit 1; }
-TF_SOURCE="$TF_SOURCE" ENGINE_FROM_SOURCE=1 bash "$STUDIO/spark/build-engine.sh"
+TF_SOURCE="$TF_SOURCE" ENGINE_FROM_SOURCE=1 bash "$SUPPORT/build-engine.sh"
 mkdir -p "$HOME/.codex/skills"
 SKILL="$HOME/.codex/skills/dgx-spark-generate-video"
 if [ -e "$SKILL" ] || [ -L "$SKILL" ]; then
@@ -64,7 +91,7 @@ if [ -e "$SKILL" ] || [ -L "$SKILL" ]; then
 else
   ln -s "$REPO/skills/dgx-spark-generate-video" "$SKILL"
 fi
-SPARK_COMFY_PORT=8188 PREFIX="$PREFIX" bash "$STUDIO/spark/comfy.sh" start
+SPARK_COMFY_PORT=8188 PREFIX="$PREFIX" bash "$SUPPORT/comfy.sh" start
 for i in $(seq 1 90); do
   if curl -fsS http://127.0.0.1:8188/system_stats >/dev/null; then
     "$REPO/scripts/media" doctor
