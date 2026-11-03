@@ -1,0 +1,43 @@
+diff --git a/zig/src/families/h3/cuda.zig b/zig/src/families/h3/cuda.zig
+index fd0935c96..bdef84f1c 100644
+--- a/zig/src/families/h3/cuda.zig
++++ b/zig/src/families/h3/cuda.zig
+@@ -173,6 +173,7 @@ pub const Model = struct {
+     loaded_seconds: f64 = 0,
+     /// The int8 projections came from the copy saved by an earlier load.
+     from_cache: bool = false,
++    has_gate: bool = false,
+ 
+     fn function(self: *const Model, comptime name: []const u8) cuda.Function {
+         inline for (kernel_names, 0..) |n, i| if (comptime std.mem.eql(u8, n, name)) return self.functions[i];
+@@ -221,6 +222,7 @@ pub const Model = struct {
+         while (std.mem.indexOf(u8, ck.header, try std.fmt.bufPrint(&name, "\"blocks.{d}.norm1.weight\"", .{layers})) != null) layers += 1;
+         const hidden = self.hidden;
+         const inner = self.inner;
++        self.has_gate = std.mem.indexOf(u8, ck.header, "\"blocks.0.attn.to_gate_compress.weight\"") != null;
+ 
+         self.blocks = try gpa.alloc(Block, layers);
+         for (self.blocks) |*b| {
+@@ -236,7 +238,13 @@ pub const Model = struct {
+             defer scratch.free();
+             for (self.blocks, 0..) |*b, i| {
+                 try self.quantize(&scratch, try ck.bf16(try std.fmt.bufPrint(&name, "blocks.{d}.attn.qkv_proj.weight", .{i})), b.qkvc, 0, 0);
+-                try self.quantize(&scratch, try ck.bf16(try std.fmt.bufPrint(&name, "blocks.{d}.attn.to_gate_compress.weight", .{i})), b.qkvc, 3 * inner, 0);
++                if (self.has_gate) {
++                    try self.quantize(&scratch, try ck.bf16(try std.fmt.bufPrint(&name, "blocks.{d}.attn.to_gate_compress.weight", .{i})), b.qkvc, 3 * inner, 0);
++                } else {
++                    // Dense attention does not read the gate output; initialize its GEMM rows.
++                    const qkv = try ck.bf16(try std.fmt.bufPrint(&name, "blocks.{d}.attn.qkv_proj.weight", .{i}));
++                    try self.quantize(&scratch, .{ .rows = inner, .cols = hidden, .bytes = qkv.bytes[0 .. inner * hidden * 2] }, b.qkvc, 3 * inner, 0);
++                }
+                 try self.quantize(&scratch, try ck.bf16(try std.fmt.bufPrint(&name, "blocks.{d}.attn.out_proj.weight", .{i})), b.out, 0, 0);
+                 // the SwiGLU's first projection is stored [gate; value]: its rows are laid out value, gate, value, gate
+                 try self.quantize(&scratch, try ck.bf16(try std.fmt.bufPrint(&name, "blocks.{d}.mlp.fc1.weight", .{i})), b.fc1, 0, self.mlp);
+@@ -628,6 +636,7 @@ pub const Model = struct {
+         const rows: usize = in.rows;
+         const tiles: usize = in.tiles;
+         const dense = in.keep == 0 or in.prefix_tiles >= in.tiles;
++        if (!dense and !self.has_gate) return error.MissingSparseGate;
+         const prefix: usize = if (dense) tiles else in.prefix_tiles;
+         const keep: usize = if (dense) 0 else in.keep;
+         try self.prepare(rows, tiles, prefix, keep, in.slot);
