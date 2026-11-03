@@ -84,6 +84,25 @@ if ! git -C "$TF_SOURCE" apply --reverse --check "$REPO/patches/tensorfold-h3.pa
 fi
 [ "$(git -C "$TF_SOURCE" rev-parse HEAD)" = "$TF_COMMIT" ] || { echo 'TensorFold revision mismatch.' >&2; exit 1; }
 TF_SOURCE="$TF_SOURCE" ENGINE_FROM_SOURCE=1 bash "$SUPPORT/build-engine.sh"
+python3 - "$TF_SOURCE" "$PREFIX/tf-h3" <<'PY'
+import hashlib
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+source, output = map(Path, sys.argv[1:])
+engine = output / 'libtf_h3.so'
+hasher = hashlib.sha256()
+with engine.open('rb') as f:
+    for chunk in iter(lambda: f.read(1024 * 1024), b''):
+        hasher.update(chunk)
+engine_hash = hasher.hexdigest()
+revision = subprocess.check_output(['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True).strip()
+diff = subprocess.check_output(['git', '-C', str(source), 'diff', '--binary', 'HEAD'], text=True)
+(output / 'build.json').write_text(json.dumps({'engine_sha256': engine_hash, 'source_revision': revision,
+                                               'source_diff': diff}, indent=2) + '\n')
+PY
 mkdir -p "$HOME/.codex/skills"
 SKILL="$HOME/.codex/skills/dgx-spark-generate-video"
 if [ -e "$SKILL" ] || [ -L "$SKILL" ]; then
